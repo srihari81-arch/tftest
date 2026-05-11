@@ -7,18 +7,16 @@ trigger:
       - terraform/**
 
 pool:
-  vmImage: ubuntu-latest
+  name: Default
 
 variables:
-  - group: terraform-vars          # Variable group containing ARM_* secrets
+  - group: terraform-vars
   - name: TF_WORKING_DIR
-    value: terraform               # Folder containing your .tf files
+    value: terraform
 
 stages:
 
-  # ─────────────────────────────────────────────
   # Stage 1: Validate
-  # ─────────────────────────────────────────────
   - stage: Validate
     displayName: "Terraform Validate"
     jobs:
@@ -34,9 +32,9 @@ stages:
             displayName: "terraform init (no backend)"
             workingDirectory: $(TF_WORKING_DIR)
             env:
-              ARM_CLIENT_ID:       $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET:   $(ARM_CLIENT_SECRET)
-              ARM_TENANT_ID:       $(ARM_TENANT_ID)
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
               ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
 
           - script: terraform validate
@@ -46,15 +44,13 @@ stages:
           - script: |
               terraform fmt -check -recursive
               if [ $? -ne 0 ]; then
-                echo "##[error]Terraform files are not formatted. Run 'terraform fmt' locally."
+                echo "##[error]Terraform files are not formatted. Run terraform fmt locally."
                 exit 1
               fi
             displayName: "terraform fmt check"
             workingDirectory: $(TF_WORKING_DIR)
 
-  # ─────────────────────────────────────────────
   # Stage 2: Plan
-  # ─────────────────────────────────────────────
   - stage: Plan
     displayName: "Terraform Plan"
     dependsOn: Validate
@@ -72,38 +68,35 @@ stages:
             displayName: "terraform init"
             workingDirectory: $(TF_WORKING_DIR)
             env:
-              ARM_CLIENT_ID:       $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET:   $(ARM_CLIENT_SECRET)
-              ARM_TENANT_ID:       $(ARM_TENANT_ID)
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
               ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
 
           - script: terraform plan -out=tfplan
             displayName: "terraform plan"
             workingDirectory: $(TF_WORKING_DIR)
             env:
-              ARM_CLIENT_ID:       $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET:   $(ARM_CLIENT_SECRET)
-              ARM_TENANT_ID:       $(ARM_TENANT_ID)
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
               ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
 
-          # Publish the plan file so the Apply stage can consume it
           - publish: $(TF_WORKING_DIR)/tfplan
             artifact: terraform-plan
             displayName: "Publish plan artifact"
 
-  # ─────────────────────────────────────────────
-  # Stage 3: Apply (with optional approval gate)
-  # ─────────────────────────────────────────────
+  # Stage 3: Apply
   - stage: Apply
     displayName: "Terraform Apply"
     dependsOn: Plan
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
-      # To enable a manual approval gate, create an Environment in Azure DevOps
-      # named "production" and configure Approvals & Checks on it.
       - deployment: apply
         displayName: "Apply"
-        environment: production        # Remove or rename if you don't need approval
+        environment: production
+        pool:
+          name: Default
         strategy:
           runOnce:
             deploy:
@@ -113,25 +106,25 @@ stages:
                   inputs:
                     terraformVersion: "latest"
 
-                # Download the plan artifact from the previous stage
-                - download: current
-                  artifact: terraform-plan
-                  displayName: "Download plan artifact"
+                - checkout: self
+                  displayName: "Checkout source"
 
                 - script: terraform init
                   displayName: "terraform init"
                   workingDirectory: $(TF_WORKING_DIR)
                   env:
-                    ARM_CLIENT_ID:       $(ARM_CLIENT_ID)
-                    ARM_CLIENT_SECRET:   $(ARM_CLIENT_SECRET)
-                    ARM_TENANT_ID:       $(ARM_TENANT_ID)
+                    ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+                    ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+                    ARM_TENANT_ID: $(ARM_TENANT_ID)
                     ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
 
-                - script: terraform apply -auto-approve $(Pipeline.Workspace)/terraform-plan/tfplan
-                  displayName: "terraform apply"
+                - script: |
+                    terraform plan -out=tfplan
+                    terraform apply -auto-approve tfplan
+                  displayName: "terraform plan & apply"
                   workingDirectory: $(TF_WORKING_DIR)
                   env:
-                    ARM_CLIENT_ID:       $(ARM_CLIENT_ID)
-                    ARM_CLIENT_SECRET:   $(ARM_CLIENT_SECRET)
-                    ARM_TENANT_ID:       $(ARM_TENANT_ID)
+                    ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+                    ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+                    ARM_TENANT_ID: $(ARM_TENANT_ID)
                     ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
