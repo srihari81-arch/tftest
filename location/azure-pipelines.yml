@@ -18,7 +18,7 @@ stages:
 
   # Stage 1: Validate
   - stage: Validate
-    displayName: "Terraform Validate"
+    displayName: "Terraform Validate1"
     jobs:
       - job: validate
         displayName: "Init & Validate"
